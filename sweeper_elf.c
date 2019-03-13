@@ -7,6 +7,7 @@
 #include<sys/stat.h>
 #include<assert.h>
 #include<string.h>
+#include<time.h>
 
 size_t
 get_filesize(const char* filename) {
@@ -30,6 +31,13 @@ typedef struct _range {
   size_t low;
   size_t high;
 } Range;
+
+static size_t
+get_timestamp () {
+  struct timeval now;
+  gettimeofday(&now, NULL);
+  return now.tv_usec + (size_t)now.tv_sec * 1000000;
+}
 
 #define MMAP_SHADOW_FLAGS    (MAP_PRIVATE|MAP_ANONYMOUS|MAP_32BIT|MAP_FIXED)
 #define MMAP_SHADOW(addr, s)       mmap((void*)(addr), (s), PROT_READ|PROT_WRITE, MMAP_SHADOW_FLAGS, -1, 0)
@@ -81,14 +89,29 @@ main(int argc, char** argv) {
   size_t ptrCount = 0;
   for(size_t* ptr=p; (char*)ptr<(char*)p+filesize; ptr++) {
     size_t shiftAddr = ((*ptr)>>7); // FIXME: This is a hardcoded shift value.
+    int found = 0;
     for(size_t i=0; i<rangeCount; i++) {
       if(shiftAddr>=ranges[i].low && shiftAddr<ranges[i].high) {
         ptrCount++;
-        continue;
+        found = 1;
+        break;
       }
     }
-    *ptr = 0;
+    if(!found)
+      *ptr = 0;
   }
+
+  size_t t1 = get_timestamp();
+  for(size_t* ptr=p; (char*)ptr<(char*)p+filesize; ptr++) {
+    if(*ptr != 0) {
+      size_t bitIdx = ((*ptr)>>4) & 7;
+      char* byte = (char*)((*ptr)>>7);
+      if(*byte & (1<<bitIdx))
+        *ptr = 0;
+    }
+  }
+  size_t t2 = get_timestamp();
+  printf("usec passed %zd\n", t2-t1);
 
   printf("pointer density: %lf\n", (double)ptrCount*8/filesize);
 
