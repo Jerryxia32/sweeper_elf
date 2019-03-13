@@ -61,7 +61,7 @@ main(int argc, char** argv) {
   //assert(theelf != NULL);
   //Elf64_Ehdr* ehdr = elf64_getehdr(theelf);
   //Elf64_Phdr* phdr = elf64_getphdr(theelf);
-  printf("filename: %s\n", filename);
+  printf("filename: %s, filesize: %zd\n", filename, filesize);
 
   // First, build small ranges.
   Range* ranges = NULL;
@@ -86,13 +86,17 @@ main(int argc, char** argv) {
     printf("low: 0x%lx, high: 0x%lx\n", ranges[i].low, ranges[i].high);
   }
 
-  size_t ptrCount = 0;
+  size_t pageCount = 0;
+  size_t* pages = malloc(filesize/4096 * sizeof(size_t));
   for(size_t* ptr=p; (char*)ptr<(char*)p+filesize; ptr++) {
     size_t shiftAddr = ((*ptr)>>7); // FIXME: This is a hardcoded shift value.
     int found = 0;
     for(size_t i=0; i<rangeCount; i++) {
       if(shiftAddr>=ranges[i].low && shiftAddr<ranges[i].high) {
-        ptrCount++;
+        if(pageCount==0 || pages[pageCount-1]!=((size_t)ptr>>12<<12)) {
+          pageCount++;
+          pages[pageCount-1] = ((size_t)ptr>>12<<12);
+        }
         found = 1;
         break;
       }
@@ -100,20 +104,24 @@ main(int argc, char** argv) {
     if(!found)
       *ptr = 0;
   }
+  printf("pageCount is: %zd\n", pageCount);
 
   size_t t1 = get_timestamp();
-  for(size_t* ptr=p; (char*)ptr<(char*)p+filesize; ptr++) {
-    if(*ptr != 0) {
-      size_t bitIdx = ((*ptr)>>4) & 7;
-      char* byte = (char*)((*ptr)>>7);
-      if(*byte & (1<<bitIdx))
-        *ptr = 0;
+  for(size_t i=0; i<pageCount; i++) {
+    size_t* thisPage = (size_t*)pages[i];
+    for(size_t* ptr=thisPage; (char*)ptr<(char*)thisPage+4096; ptr++) {
+      if(*ptr != 0) {
+        size_t bitIdx = ((*ptr)>>4) & 7;
+        char* byte = (char*)((*ptr)>>7);
+        if(*byte & (1<<bitIdx))
+          *ptr = 0;
+      }
     }
   }
   size_t t2 = get_timestamp();
   printf("usec passed %zd\n", t2-t1);
 
-  printf("pointer density: %lf\n", (double)ptrCount*8/filesize);
+  printf("page density: %lf\n", (double)pageCount*4096/filesize);
 
   return 0;
 }
