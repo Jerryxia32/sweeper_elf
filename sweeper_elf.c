@@ -42,7 +42,7 @@ get_timestamp () {
 #define MMAP_SHADOW_FLAGS    (MAP_PRIVATE|MAP_ANONYMOUS|MAP_32BIT|MAP_FIXED)
 #define MMAP_SHADOW(addr, s)       mmap((void*)(addr), (s), PROT_READ|PROT_WRITE, MMAP_SHADOW_FLAGS, -1, 0)
 
-static void sweep_page(size_t* thisPage);
+static void sweep_page(char* thisPage);
 
 int
 main(int argc, char** argv) {
@@ -114,7 +114,7 @@ main(int argc, char** argv) {
   assert(*(char*)dummy == 0);
   size_t t1 = get_timestamp();
   for(size_t i=0; i<pageCount; i++) {
-    size_t* thisPage = (size_t*)pages[i];
+    char* thisPage = (char*)pages[i];
     sweep_page(thisPage);
   }
   size_t t2 = get_timestamp();
@@ -125,6 +125,7 @@ main(int argc, char** argv) {
   return 0;
 }
 
+#if 0
 // This is the kernel to sweep within one 4KiB page.
 static inline void
 sweep_page(size_t* thisPage) {
@@ -162,3 +163,32 @@ sweep_page(size_t* thisPage) {
       *(ptr+3) = 0;
   }
 }
+
+#else
+#include<immintrin.h>
+
+static inline void
+sweep_page(char* thisPage) {
+  for(char* ptr = thisPage; ptr<thisPage+4096; ptr+=sizeof(__m256i)) {
+    __m256i zeroVec = _mm256_setzero_si256();
+    __m256i loadVec = _mm256_load_si256((__m256i const*)ptr); // TODO: Try streaming loads.
+    // a mask indicating which are capabilities
+    __m256i ptrMask = _mm256_cmpgt_epi64(loadVec, zeroVec);
+    // Heap granularity is 16 bytes, shift by 4.
+    loadVec = _mm256_srli_epi64(loadVec, 4);
+    // A mask to select the bot 6 bits.
+    __m256i botMask = _mm256_set1_epi64x((size_t)0x3f);
+    __m256i bitShift = _mm256_and_si256(loadVec, botMask);
+    // Now pointing to 64-bit aligned addresses in shadow space.
+    loadVec = _mm256_srli_epi64(loadVec, 6);
+    loadVec = _mm256_slli_epi64(loadVec, 3);
+    // Do a masked gather.
+    __m256i shadowBits = _mm256_mask_i64gather_epi64(zeroVec, NULL, loadVec, ptrMask, 1);
+    shadowBits = _mm256_srlv_epi64(shadowBits, bitShift);
+    __m256i ones = _mm256_set1_epi64x((size_t)0x1);
+    shadowBits = _mm256_and_si256(shadowBits, ones);
+    shadowBits = _mm256_slli_epi64(shadowBits, 63);
+    _mm256_maskstore_epi64((long long*)ptr, shadowBits, zeroVec);
+  }
+}
+#endif
