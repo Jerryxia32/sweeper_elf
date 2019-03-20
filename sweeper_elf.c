@@ -42,6 +42,8 @@ get_timestamp () {
 #define MMAP_SHADOW_FLAGS    (MAP_PRIVATE|MAP_ANONYMOUS|MAP_32BIT|MAP_FIXED)
 #define MMAP_SHADOW(addr, s)       mmap((void*)(addr), (s), PROT_READ|PROT_WRITE, MMAP_SHADOW_FLAGS, -1, 0)
 
+static void sweep_page(size_t* thisPage);
+
 int
 main(int argc, char** argv) {
   if(argc != 2) {
@@ -55,6 +57,9 @@ main(int argc, char** argv) {
   size_t filesize = get_filesize(filename);
   // p points to the start of the file map.
   void* p = mmap(NULL, filesize, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
+  void* dummy = mmap((void*)0x80000, 0x1000, PROT_READ|PROT_WRITE, MMAP_SHADOW_FLAGS, -1, 0);
+  assert(dummy != MAP_FAILED);
+  printf("Created dummy mapping at 0x80000\n");
   Elf64_Ehdr* ehdr = (Elf64_Ehdr*)p;
   Elf64_Phdr* phdr = elf_pheader(ehdr);
   //Elf* theelf = elf_begin(fd, ELF_C_READ, NULL);
@@ -106,17 +111,11 @@ main(int argc, char** argv) {
   }
   printf("pageCount is: %zd\n", pageCount);
 
+  assert(*(char*)dummy == 0);
   size_t t1 = get_timestamp();
   for(size_t i=0; i<pageCount; i++) {
     size_t* thisPage = (size_t*)pages[i];
-    for(size_t* ptr=thisPage; (char*)ptr<(char*)thisPage+4096; ptr++) {
-      if(*ptr != 0) {
-        size_t bitIdx = ((*ptr)>>4) & 7;
-        char* byte = (char*)((*ptr)>>7);
-        if(*byte & (1<<bitIdx))
-          *ptr = 0;
-      }
-    }
+    sweep_page(thisPage);
   }
   size_t t2 = get_timestamp();
   printf("usec passed %zd\n", t2-t1);
@@ -124,4 +123,42 @@ main(int argc, char** argv) {
   printf("page density: %lf\n", (double)pageCount*4096/filesize);
 
   return 0;
+}
+
+// This is the kernel to sweep within one 4KiB page.
+static inline void
+sweep_page(size_t* thisPage) {
+  for(size_t* ptr=thisPage; (char*)ptr<(char*)thisPage+4096; ptr+=4) {
+    //if(*ptr != 0) {
+    //  size_t bitIdx = ((*ptr)>>4) & 7;
+    //  char* byte = (char*)((*ptr)>>7);
+    //  if(*byte & (1<<bitIdx))
+    //    *ptr = 0;
+    //}
+    size_t addr = *ptr;
+    size_t addr2 = *(ptr+1);
+    addr = (addr == 0)? 0x4000000:addr;
+    addr2 = (addr2 == 0)? 0x4000000:addr2;
+    size_t bitIdx = (addr>>4) & 7;
+    size_t bitIdx2 = (addr2>>4) & 7;
+    char* byte = (char*)(addr>>7);
+    char* byte2 = (char*)(addr2>>7);
+    if(*byte & (1<<bitIdx))
+      *ptr = 0;
+    if(*byte2 & (1<<bitIdx2))
+      *(ptr+1) = 0;
+
+    size_t addr3= *(ptr+2);
+    size_t addr4 = *(ptr+3);
+    addr3 = (addr3 == 0)? 0x4000000:addr3;
+    addr4 = (addr4 == 0)? 0x4000000:addr4;
+    size_t bitIdx3 = (addr3>>4) & 7;
+    size_t bitIdx4 = (addr4>>4) & 7;
+    char* byte3 = (char*)(addr3>>7);
+    char* byte4 = (char*)(addr4>>7);
+    if(*byte3 & (1<<bitIdx3))
+      *(ptr+2) = 0;
+    if(*byte4 & (1<<bitIdx4))
+      *(ptr+3) = 0;
+  }
 }
