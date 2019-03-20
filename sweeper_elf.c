@@ -128,8 +128,8 @@ main(int argc, char** argv) {
 #if 0
 // This is the kernel to sweep within one 4KiB page.
 static inline void
-sweep_page(size_t* thisPage) {
-  for(size_t* ptr=thisPage; (char*)ptr<(char*)thisPage+4096; ptr+=4) {
+sweep_page(char* thisPage) {
+  for(size_t* ptr=(size_t*)thisPage; (char*)ptr<thisPage+4096; ptr+=4) {
     //if(*ptr != 0) {
     //  size_t bitIdx = ((*ptr)>>4) & 7;
     //  char* byte = (char*)((*ptr)>>7);
