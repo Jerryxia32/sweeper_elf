@@ -9,6 +9,15 @@
 #include<string.h>
 #include<time.h>
 
+//#define COUNT_ONES
+
+#ifdef COUNT_ONES
+size_t total_ones = 0;
+#define inc_ones(x) { total_ones += (x); }
+#else // COUNT_ONES
+#define inc_ones(x)
+#endif // COUNT_ONES
+
 size_t
 get_filesize(const char* filename) {
   struct stat st;
@@ -59,14 +68,14 @@ main(int argc, char** argv) {
   void* p = mmap(NULL, filesize, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
   void* dummy = mmap((void*)0x80000, 0x1000, PROT_READ|PROT_WRITE, MMAP_SHADOW_FLAGS, -1, 0);
   assert(dummy != MAP_FAILED);
-  printf("Created dummy mapping at 0x80000\n");
+  //printf("Created dummy mapping at 0x80000\n");
   Elf64_Ehdr* ehdr = (Elf64_Ehdr*)p;
   Elf64_Phdr* phdr = elf_pheader(ehdr);
   //Elf* theelf = elf_begin(fd, ELF_C_READ, NULL);
   //assert(theelf != NULL);
   //Elf64_Ehdr* ehdr = elf64_getehdr(theelf);
   //Elf64_Phdr* phdr = elf64_getphdr(theelf);
-  printf("filename: %s, filesize: %zd\n", filename, filesize);
+  //printf("filename: %s, filesize: %zd\n", filename, filesize);
 
   // First, build small ranges.
   Range* ranges = NULL;
@@ -88,7 +97,7 @@ main(int argc, char** argv) {
   }
 
   for(size_t i=0; i<rangeCount; i++) {
-    printf("low: 0x%lx, high: 0x%lx\n", ranges[i].low, ranges[i].high);
+    //printf("low: 0x%lx, high: 0x%lx\n", ranges[i].low, ranges[i].high);
   }
 
   size_t pageCount = 0;
@@ -109,7 +118,7 @@ main(int argc, char** argv) {
     if(!found)
       *ptr = 0;
   }
-  printf("pageCount is: %zd\n", pageCount);
+  //printf("pageCount is: %zd\n", pageCount);
 
   assert(*(char*)dummy == 0);
   size_t t1 = get_timestamp();
@@ -120,12 +129,16 @@ main(int argc, char** argv) {
   size_t t2 = get_timestamp();
   printf("usec passed %zd\n", t2-t1);
 
-  printf("page density: %lf\n", (double)pageCount*4096/filesize);
+#ifdef COUNT_ONES
+  printf("total ones: %zd\n", total_ones);
+#endif // COUNT_ONES
+
+  //printf("page density: %lf\n", (double)pageCount*4096/filesize);
 
   return 0;
 }
 
-#if 0
+#if 1
 // This is the kernel to sweep within one 4KiB page.
 static inline void
 sweep_page(char* thisPage) {
@@ -144,10 +157,14 @@ sweep_page(char* thisPage) {
     size_t bitIdx2 = (addr2>>4) & 7;
     char* byte = (char*)(addr>>7);
     char* byte2 = (char*)(addr2>>7);
-    if(*byte & (1<<bitIdx))
+    if(*byte & (1<<bitIdx)) {
+      inc_ones(1);
       *ptr = 0;
-    if(*byte2 & (1<<bitIdx2))
+    }
+    if(*byte2 & (1<<bitIdx2)) {
+      inc_ones(1);
       *(ptr+1) = 0;
+    }
 
     size_t addr3= *(ptr+2);
     size_t addr4 = *(ptr+3);
@@ -157,10 +174,14 @@ sweep_page(char* thisPage) {
     size_t bitIdx4 = (addr4>>4) & 7;
     char* byte3 = (char*)(addr3>>7);
     char* byte4 = (char*)(addr4>>7);
-    if(*byte3 & (1<<bitIdx3))
+    if(*byte3 & (1<<bitIdx3)) {
+      inc_ones(1);
       *(ptr+2) = 0;
-    if(*byte4 & (1<<bitIdx4))
+    }
+    if(*byte4 & (1<<bitIdx4)) {
+      inc_ones(1);
       *(ptr+3) = 0;
+    }
   }
 }
 
@@ -196,6 +217,14 @@ sweep_page(char* thisPage) {
     __m256i ones = _mm256_set1_epi64x((size_t)0x1);
     shadowBits1 = _mm256_and_si256(shadowBits1, ones);
     shadowBits2 = _mm256_and_si256(shadowBits2, ones);
+    inc_ones(_mm256_extract_epi64(shadowBits1, 0));
+    inc_ones(_mm256_extract_epi64(shadowBits1, 1));
+    inc_ones(_mm256_extract_epi64(shadowBits1, 2));
+    inc_ones(_mm256_extract_epi64(shadowBits1, 3));
+    inc_ones(_mm256_extract_epi64(shadowBits2, 0));
+    inc_ones(_mm256_extract_epi64(shadowBits2, 1));
+    inc_ones(_mm256_extract_epi64(shadowBits2, 2));
+    inc_ones(_mm256_extract_epi64(shadowBits2, 3));
     shadowBits1 = _mm256_slli_epi64(shadowBits1, 63);
     shadowBits2 = _mm256_slli_epi64(shadowBits2, 63);
     _mm256_maskstore_epi64((long long*)ptr, shadowBits1, zeroVec);
