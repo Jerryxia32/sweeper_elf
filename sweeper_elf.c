@@ -2,7 +2,7 @@
 #include<stdlib.h>
 #include<fcntl.h>
 #include<inttypes.h>
-#include<libelf.h>
+#include<elf.h>
 #include<sys/mman.h>
 #include<sys/stat.h>
 #include<assert.h>
@@ -138,7 +138,7 @@ main(int argc, char** argv) {
   return 0;
 }
 
-#if 1
+#if 0
 // This is the kernel to sweep within one 4KiB page.
 static inline void
 sweep_page(char* thisPage) {
@@ -189,7 +189,7 @@ sweep_page(char* thisPage) {
 #include<immintrin.h>
 
 static inline void
-sweep_page(char* thisPage) {
+sweep_page_256(char* thisPage) {
   for(__m256i* ptr = (__m256i*)thisPage; (char*)ptr<thisPage+4096; ptr+=2) {
     __m256i zeroVec = _mm256_setzero_si256();
     __m256i loadVec1= _mm256_stream_load_si256(ptr); // TODO: Try streaming loads.
@@ -229,6 +229,44 @@ sweep_page(char* thisPage) {
     shadowBits2 = _mm256_slli_epi64(shadowBits2, 63);
     _mm256_maskstore_epi64((long long*)ptr, shadowBits1, zeroVec);
     _mm256_maskstore_epi64((long long*)(ptr+1), shadowBits2, zeroVec);
+  }
+}
+
+static inline void
+sweep_page(char* thisPage) {
+  for(__m512i* ptr = (__m512i*)thisPage; (char*)ptr<thisPage+4096; ptr+=2) {
+    __m512i zeroVec = _mm512_setzero_si512();
+    __m512i loadVec1= _mm512_load_si512(ptr); // TODO: Try streaming loads.
+    __m512i loadVec2= _mm512_load_si512(ptr+1);
+    // a mask indicating which are capabilities
+    __mmask8 ptrMask1= _mm512_cmpgt_epi64_mask(loadVec1, zeroVec);
+    __mmask8 ptrMask2= _mm512_cmpgt_epi64_mask(loadVec2, zeroVec);
+    // Heap granularity is 16 bytes, shift by 4.
+    loadVec1 = _mm512_srli_epi64(loadVec1, 4);
+    loadVec2 = _mm512_srli_epi64(loadVec2, 4);
+    // A mask to select the bot 6 bits.
+    __m512i botMask = _mm512_set1_epi64((size_t)0x3f);
+    __m512i bitShift1 = _mm512_and_si512(loadVec1, botMask);
+    __m512i bitShift2 = _mm512_and_si512(loadVec2, botMask);
+    // Now pointing to 64-bit aligned addresses in shadow space.
+    loadVec1 = _mm512_srli_epi64(loadVec1, 6);
+    loadVec1 = _mm512_slli_epi64(loadVec1, 3);
+    loadVec2 = _mm512_srli_epi64(loadVec2, 6);
+    loadVec2 = _mm512_slli_epi64(loadVec2, 3);
+    // Do a masked gather.
+    __m512i shadowBits1 = _mm512_mask_i64gather_epi64(zeroVec, ptrMask1, loadVec1, NULL, 1);
+    __m512i shadowBits2 = _mm512_mask_i64gather_epi64(zeroVec, ptrMask2, loadVec2, NULL, 1);
+    shadowBits1 = _mm512_srlv_epi64(shadowBits1, bitShift1);
+    shadowBits2 = _mm512_srlv_epi64(shadowBits2, bitShift2);
+    __m512i ones = _mm512_set1_epi64((size_t)0x1);
+    shadowBits1 = _mm512_and_si512(shadowBits1, ones);
+    shadowBits2 = _mm512_and_si512(shadowBits2, ones);
+    inc_ones(_mm512_reduce_add_epi64(shadowBits1));
+    inc_ones(_mm512_reduce_add_epi64(shadowBits2));
+    __mmask8 storeMask1= _mm512_cmpgt_epi64_mask(shadowBits1, zeroVec);
+    __mmask8 storeMask2= _mm512_cmpgt_epi64_mask(shadowBits2, zeroVec);
+    _mm512_mask_store_epi64(ptr, storeMask1, zeroVec);
+    _mm512_mask_store_epi64(ptr+1, storeMask2, zeroVec);
   }
 }
 #endif
