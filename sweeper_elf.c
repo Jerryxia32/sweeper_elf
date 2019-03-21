@@ -169,26 +169,37 @@ sweep_page(char* thisPage) {
 
 static inline void
 sweep_page(char* thisPage) {
-  for(char* ptr = thisPage; ptr<thisPage+4096; ptr+=sizeof(__m256i)) {
+  for(__m256i* ptr = (__m256i*)thisPage; (char*)ptr<thisPage+4096; ptr+=2) {
     __m256i zeroVec = _mm256_setzero_si256();
-    __m256i loadVec = _mm256_load_si256((__m256i const*)ptr); // TODO: Try streaming loads.
+    __m256i loadVec1= _mm256_stream_load_si256(ptr); // TODO: Try streaming loads.
+    __m256i loadVec2= _mm256_stream_load_si256(ptr+1);
     // a mask indicating which are capabilities
-    __m256i ptrMask = _mm256_cmpgt_epi64(loadVec, zeroVec);
+    __m256i ptrMask1= _mm256_cmpgt_epi64(loadVec1, zeroVec);
+    __m256i ptrMask2= _mm256_cmpgt_epi64(loadVec2, zeroVec);
     // Heap granularity is 16 bytes, shift by 4.
-    loadVec = _mm256_srli_epi64(loadVec, 4);
+    loadVec1 = _mm256_srli_epi64(loadVec1, 4);
+    loadVec2 = _mm256_srli_epi64(loadVec2, 4);
     // A mask to select the bot 6 bits.
     __m256i botMask = _mm256_set1_epi64x((size_t)0x3f);
-    __m256i bitShift = _mm256_and_si256(loadVec, botMask);
+    __m256i bitShift1 = _mm256_and_si256(loadVec1, botMask);
+    __m256i bitShift2 = _mm256_and_si256(loadVec2, botMask);
     // Now pointing to 64-bit aligned addresses in shadow space.
-    loadVec = _mm256_srli_epi64(loadVec, 6);
-    loadVec = _mm256_slli_epi64(loadVec, 3);
+    loadVec1 = _mm256_srli_epi64(loadVec1, 6);
+    loadVec1 = _mm256_slli_epi64(loadVec1, 3);
+    loadVec2 = _mm256_srli_epi64(loadVec2, 6);
+    loadVec2 = _mm256_slli_epi64(loadVec2, 3);
     // Do a masked gather.
-    __m256i shadowBits = _mm256_mask_i64gather_epi64(zeroVec, NULL, loadVec, ptrMask, 1);
-    shadowBits = _mm256_srlv_epi64(shadowBits, bitShift);
+    __m256i shadowBits1 = _mm256_mask_i64gather_epi64(zeroVec, NULL, loadVec1, ptrMask1, 1);
+    __m256i shadowBits2 = _mm256_mask_i64gather_epi64(zeroVec, NULL, loadVec2, ptrMask2, 1);
+    shadowBits1 = _mm256_srlv_epi64(shadowBits1, bitShift1);
+    shadowBits2 = _mm256_srlv_epi64(shadowBits2, bitShift2);
     __m256i ones = _mm256_set1_epi64x((size_t)0x1);
-    shadowBits = _mm256_and_si256(shadowBits, ones);
-    shadowBits = _mm256_slli_epi64(shadowBits, 63);
-    _mm256_maskstore_epi64((long long*)ptr, shadowBits, zeroVec);
+    shadowBits1 = _mm256_and_si256(shadowBits1, ones);
+    shadowBits2 = _mm256_and_si256(shadowBits2, ones);
+    shadowBits1 = _mm256_slli_epi64(shadowBits1, 63);
+    shadowBits2 = _mm256_slli_epi64(shadowBits2, 63);
+    _mm256_maskstore_epi64((long long*)ptr, shadowBits1, zeroVec);
+    _mm256_maskstore_epi64((long long*)(ptr+1), shadowBits2, zeroVec);
   }
 }
 #endif
