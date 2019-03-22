@@ -142,12 +142,14 @@ main(int argc, char** argv) {
 // This is the kernel to sweep within one 4KiB page.
 static inline void
 sweep_page(char* thisPage) {
-  for(size_t* ptr=(size_t*)thisPage; (char*)ptr<thisPage+4096; ptr+=4) {
+  for(size_t* ptr=(size_t*)thisPage; (char*)ptr<thisPage+4096; ptr+=2) {
     //if(*ptr != 0) {
     //  size_t bitIdx = ((*ptr)>>4) & 7;
     //  char* byte = (char*)((*ptr)>>7);
-    //  if(*byte & (1<<bitIdx))
+    //  if(*byte & (1<<bitIdx)) {
+    //    inc_ones(1);
     //    *ptr = 0;
+    //  }
     //}
     size_t addr = *ptr;
     size_t addr2 = *(ptr+1);
@@ -165,23 +167,6 @@ sweep_page(char* thisPage) {
       inc_ones(1);
       *(ptr+1) = 0;
     }
-
-    size_t addr3= *(ptr+2);
-    size_t addr4 = *(ptr+3);
-    addr3 = (addr3 == 0)? 0x4000000:addr3;
-    addr4 = (addr4 == 0)? 0x4000000:addr4;
-    size_t bitIdx3 = (addr3>>4) & 7;
-    size_t bitIdx4 = (addr4>>4) & 7;
-    char* byte3 = (char*)(addr3>>7);
-    char* byte4 = (char*)(addr4>>7);
-    if(*byte3 & (1<<bitIdx3)) {
-      inc_ones(1);
-      *(ptr+2) = 0;
-    }
-    if(*byte4 & (1<<bitIdx4)) {
-      inc_ones(1);
-      *(ptr+3) = 0;
-    }
   }
 }
 
@@ -189,7 +174,7 @@ sweep_page(char* thisPage) {
 #include<immintrin.h>
 
 static inline void
-sweep_page_256(char* thisPage) {
+sweep_page(char* thisPage) {
   for(__m256i* ptr = (__m256i*)thisPage; (char*)ptr<thisPage+4096; ptr+=2) {
     __m256i zeroVec = _mm256_setzero_si256();
     __m256i loadVec1= _mm256_stream_load_si256(ptr); // TODO: Try streaming loads.
@@ -233,7 +218,7 @@ sweep_page_256(char* thisPage) {
 }
 
 static inline void
-sweep_page(char* thisPage) {
+sweep_page_512(char* thisPage) {
   for(__m512i* ptr = (__m512i*)thisPage; (char*)ptr<thisPage+4096; ptr+=2) {
     __m512i zeroVec = _mm512_setzero_si512();
     __m512i loadVec1= _mm512_load_si512(ptr); // TODO: Try streaming loads.
