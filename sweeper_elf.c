@@ -127,7 +127,8 @@ main(int argc, char** argv) {
     sweep_page(thisPage);
   }
   size_t t2 = get_timestamp();
-  printf("usec passed %zd\n", t2-t1);
+  double bandwidth = pageCount*4096/((double)(t2-t1)/1000000)/1024/1024;
+  printf("usec %zd bw %lf\n", t2-t1, bandwidth);
 
 #ifdef COUNT_ONES
   printf("total ones: %zd\n", total_ones);
