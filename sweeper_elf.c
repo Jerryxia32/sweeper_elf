@@ -154,17 +154,15 @@ sweep_page(char* thisPage) {
     //}
     size_t addr = *ptr;
     size_t addr2 = *(ptr+1);
-    addr = (addr == 0)? 0x4000000:addr;
-    addr2 = (addr2 == 0)? 0x4000000:addr2;
     size_t bitIdx = (addr>>4) & 7;
     size_t bitIdx2 = (addr2>>4) & 7;
-    char* byte = (char*)(addr>>7);
-    char* byte2 = (char*)(addr2>>7);
-    if(*byte & (1<<bitIdx)) {
+    char byte = (addr==0)? 0 : *(char*)(addr>>7);
+    char byte2 = (addr2==0)? 0 : *(char*)(addr2>>7);
+    if(byte & (1<<bitIdx)) {
       inc_ones(1);
       *ptr = 0;
     }
-    if(*byte2 & (1<<bitIdx2)) {
+    if(byte2 & (1<<bitIdx2)) {
       inc_ones(1);
       *(ptr+1) = 0;
     }
